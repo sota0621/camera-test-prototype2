@@ -3,8 +3,10 @@ const canvas = document.getElementById('canvas-output');
 const ctx = canvas.getContext('2d');
 const startBtn = document.getElementById('start-btn');
 const stopRecordBtn = document.getElementById('stop-record-btn');
-const resetConfigBtn = document.getElementById('reset-config-btn');
 const statusText = document.getElementById('status');
+
+// ▼ 【新規追加】画角リセットボタンの要素を取得
+const resetConfigBtn = document.getElementById('reset-config-btn');
 
 let src, dst, hsv, mask, contours, hierarchy;
 let isProcessing = false;
@@ -12,7 +14,7 @@ let isProcessing = false;
 let lockCounter = 0;
 const REQUIRED_FRAMES = 150; // 5秒間安定
 
-// ブレ対策バッファ
+// ブレ対策：直近30フレームの履歴を記憶するバッファ（打率制）
 const BUFFER_SIZE = 30;
 let detectionHistory = new Array(BUFFER_SIZE).fill(false);
 let historyIndex = 0;
@@ -22,7 +24,11 @@ let isRecording = false;
 let cameraStream = null;
 let animationFrameId = null;
 
-// --- 画角マスター座標管理 ---
+// 💡 経過時間カウント用のタイマー変数
+let recordTimerId = null;
+let recordSeconds = 0;
+
+// --- 【新規追加】1回目（初回）の画角マスター座標を管理する設定 ---
 const STORAGE_KEY = "experiment_master_pts";
 let masterPoints = JSON.parse(localStorage.getItem(STORAGE_KEY)) || null;
 
@@ -44,158 +50,311 @@ function initIndexedDB() {
             db = e.target.result;
             resolve();
         };
-        request.onerror = (e) => reject(e);
+        request.onerror = (e) => {
+            reject(e.target.error);
+        };
     });
 }
 
-// ステータスバッジの文言と色を更新
-function updateStatusMessage() {
-    statusText.classList.remove('loading', 'ready', 'recording');
-    if (isRecording) {
-        statusText.classList.add('recording');
-        statusText.innerHTML = "🔴 長時間実験映像を録画中...";
-    } else if (masterPoints) {
-        statusText.classList.add('ready');
-        statusText.innerHTML = "📅 【2回目以降】初回の黄色枠に合わせてください";
-    } else {
-        statusText.classList.add('ready');
-        statusText.innerHTML = "🆕 【初回撮影】理想の画角に設置してください";
-    }
+// データをクリア
+function clearDatabase() {
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], "readwrite");
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.clear();
+        request.onsuccess = () => resolve();
+        request.onerror = (e) => reject(e.target.error);
+    });
 }
 
-// リセットボタンのクリックイベント
-resetConfigBtn.addEventListener('click', () => {
-    if (confirm("保存されている初回の画角データを削除し、新しく作り直しますか？")) {
-        localStorage.removeItem(STORAGE_KEY);
-        masterPoints = null;
-        lockCounter = 0;
-        canvas.classList.remove('locked');
-        updateStatusMessage();
-    }
-});
+// 動画の断片(Chunk)を物理ストレージに保存
+function saveChunkToDB(chunk) {
+    const transaction = db.transaction([STORE_NAME], "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    store.add(chunk);
+}
 
-// 座標の一致判定
+// 保存された全データを取得
+function getAllChunksFromDB() {
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], "readonly");
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.getAll();
+        request.onsuccess = (e) => resolve(e.target.result);
+        request.onerror = (e) => reject(e.target.error);
+    });
+}
+
+// --- 【新規追加】現在の4点座標が初回の座標と一致しているか判定する関数 ---
 function isSamePoints(ptsA, ptsB, threshold = 20) {
     if (!ptsA || !ptsB || ptsA.length !== 4 || ptsB.length !== 4) return false;
     for (let i = 0; i < 4; i++) {
         const dx = ptsA[i].x - ptsB[i].x;
         const dy = ptsA[i].y - ptsB[i].y;
         if (Math.sqrt(dx * dx + dy * dy) > threshold) {
-            return false;
+            return false; // 1点でも許容ピクセル（20px）を超えてズレていたら不可
         }
     }
     return true;
 }
 
-// カメラ起動と初期化
-async function startSystem() {
+// --- 【新規追加】ステータスメッセージの表示を更新する関数 ---
+function updateStatusMessage() {
+    if (masterPoints) {
+        statusText.innerHTML = `📅 <span style="color: #5ac8fa; font-weight: bold;">【2回目以降モード】</span> 初回の黄色枠に合わせてください`;
+    } else {
+        statusText.innerHTML = `🆕 <span style="color: #34c759; font-weight: bold;">【初回マスター登録モード】</span> 理想の画角に設置してください`;
+    }
+}
+
+// ---------------------------------
+
+// 元コードのイベントハンドラをそのまま使用
+document.getElementById('opencv-src').addEventListener('load', async () => {
     try {
         await initIndexedDB();
         
+        // ▼ 【新規追加】OpenCVロード完了時に、HTMLに存在するリセットボタンを表示させる
+        if (resetConfigBtn) {
+            resetConfigBtn.style.display = 'inline-block';
+        }
+        
+        // ▼ 【新規追加】現在の保存状況に応じてメッセージを出し分ける
+        updateStatusMessage();
+        
+        startBtn.disabled = false;
+    } catch (err) {
+        statusText.innerText = "データベース初期化失敗: " + err.message;
+    }
+});
+
+// ▼ 【新規追加】リセットボタンのクリックイベント
+if (resetConfigBtn) {
+    resetConfigBtn.addEventListener('click', () => {
+        if (confirm("保存されている初回の画角データを削除し、新しく作り直しますか？")) {
+            localStorage.removeItem(STORAGE_KEY);
+            masterPoints = null;
+            lockCounter = 0;
+            canvas.classList.remove('locked');
+            updateStatusMessage();
+        }
+    });
+}
+
+startBtn.addEventListener('click', async () => {
+    statusText.innerText = "広角スキャン用カメラを探索中...";
+    try {
+        await clearDatabase(); // 録画開始前に前回のデータをクリーンアップ
+
+        const initStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        initStream.getTracks().forEach(track => track.stop());
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+        let targetDeviceId = null;
+        const wideDevice = videoDevices.find(d => {
+            const label = d.label.toLowerCase();
+            return label.includes('ultra') || label.includes('wide') || label.includes('0.5') || label.includes('超広角');
+        });
+
+        if (wideDevice) targetDeviceId = wideDevice.deviceId;
+        else if (videoDevices.length > 1) targetDeviceId = videoDevices[videoDevices.length - 1].deviceId;
+
         const constraints = {
-            video: {
-                facingMode: { ideal: "environment" },
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
-            },
-            audio: false
+            audio: false,
+            video: { width: { ideal: 1280 }, height: { ideal: 720 } }
         };
+        if (targetDeviceId) constraints.video.deviceId = { exact: targetDeviceId };
+        else constraints.video.facingMode = 'environment';
 
         cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = cameraStream;
-        await video.play();
-
-        const track = cameraStream.getVideoTracks()[0];
-        const capabilities = track.getCapabilities();
-        const settings = track.getSettings();
+        const videoTrack = cameraStream.getVideoTracks()[0];
+        const capabilities = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
         
-        let targetId = null;
-        if (capabilities.facingMode) {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const videoDevices = devices.filter(d => d.kind === 'videoinput');
-            const ultraWide = videoDevices.find(d => 
-                d.label.toLowerCase().includes('ultra') || 
-                d.label.toLowerCase().includes('0.5') ||
-                d.label.toLowerCase().includes('wide')
-            );
-            if (ultraWide) targetId = ultraWide.deviceId;
+        if (capabilities.zoom) {
+            try { await videoTrack.applyConstraints({ advanced: [{ zoom: capabilities.zoom.min }] }); }
+            catch (e) { console.warn(e); }
         }
 
-        if (targetId && settings.deviceId !== targetId) {
-            cameraStream.getTracks().forEach(t => t.stop());
-            constraints.video.deviceId = { exact: targetId };
-            cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
-            video.srcObject = cameraStream;
-            await video.play();
-        }
+        video.srcObject = cameraStream;
+        video.play();
+        startBtn.style.display = 'none';
+        
+        video.onloadedmetadata = () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            
+            src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+            dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+            hsv = new cv.Mat(); mask = new cv.Mat();
+            contours = new cv.MatVector(); hierarchy = new cv.Mat();
 
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-
-        src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-        dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-        hsv = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC3);
-        mask = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8U);
-        contours = new cv.MatVector();
-        hierarchy = new cv.Mat();
-
-        isProcessing = true;
-        updateStatusMessage();
-        processVideo();
-
-    } catch (err) {
-        console.error("システム起動エラー:", err);
-        statusText.innerText = "カメラの起動に失敗しました。";
+            isProcessing = true;
+            
+            // ▼ 表示の再更新
+            if (masterPoints) {
+                statusText.innerText = "4つのマーカーを初回の黄色い点線枠に重ねてください";
+            } else {
+                statusText.innerText = "緑の丸4つを画面内に収めてください";
+            }
+            
+            animationFrameId = requestAnimationFrame(processVideo);
+        };
+    } catch (error) {
+        statusText.innerText = "カメラ起動失敗: " + error.message;
     }
+});
+
+function startRecordingSystem() {
+    let options = { mimeType: 'video/mp4; codecs=avc1' };
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options = { mimeType: 'video/webm; codecs=vp9' };
+    }
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options = { mimeType: '' }; 
+    }
+
+    mediaRecorder = new MediaRecorder(cameraStream, options);
+
+    mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+            saveChunkToDB(event.data);
+        }
+    };
+
+    mediaRecorder.onstop = async () => {
+        try {
+            statusText.innerText = "ストレージから動画データを収集中...";
+            const chunks = await getAllChunksFromDB();
+            const blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'video/mp4' });
+            
+            statusText.innerText = "動画ファイルをダウンロード処理中...";
+            triggerSecureDownload(blob);
+        } catch (err) {
+            statusText.innerText = "動画生成エラー: " + err.message;
+        }
+    };
+
+    mediaRecorder.start(1000);
+    isRecording = true;
+    stopRecordBtn.style.display = 'block';
 }
+
+function triggerSecureDownload(blobData) {
+    const ext = (mediaRecorder.mimeType && mediaRecorder.mimeType.includes('webm')) ? 'webm' : 'mp4';
+    const url = URL.createObjectURL(blobData);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    const nowTime = new Date().toISOString().replace(/[:.]/g, '-');
+    a.download = `experiment-video-${nowTime}.${ext}`;
+    
+    document.body.appendChild(a);
+    
+    const clickEvent = new MouseEvent('click', {
+        view: window,
+        bubbles: true,
+        cancelable: true
+    });
+    a.dispatchEvent(clickEvent);
+    
+    document.body.removeChild(a);
+    
+    setTimeout(() => {
+        URL.revokeObjectURL(url);
+        clearDatabase();
+    }, 1000);
+
+    statusText.innerHTML = `<span style="color: #34c759; font-size: 18px;">■ 録画を安全に終了しました。<br>「ファイル」アプリの「ダウンロード」を確認してください。</span>`;
+}
+
+stopRecordBtn.addEventListener('click', () => {
+    if (isRecording) {
+        isRecording = false;
+        stopRecordBtn.style.display = 'none';
+        
+        // 💡 録画停止時にタイマーをストップしてクリアする
+        if (recordTimerId) {
+            clearInterval(recordTimerId);
+            recordTimerId = null;
+        }
+
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+            mediaRecorder.stop(); 
+        }
+
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(track => track.stop());
+        }
+        if (video) {
+            video.srcObject = null;
+        }
+
+        ctx.fillStyle = "#222";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        statusText.innerText = "ストレージからデータを処理しています。しばらくお待ちください...";
+    }
+});
 
 function processVideo() {
     if (!isProcessing) return;
 
-    try {
+    if (!isRecording) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        src.data.set(imageData.data);
 
-        cv.cvtColor(src, dst, cv.COLOR_RGBA2RGB);
-        cv.cvtColor(dst, hsv, cv.COLOR_RGB2HSV);
+        src.data.set(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
+        cv.GaussianBlur(src, dst, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
+        cv.cvtColor(dst, hsv, cv.COLOR_RGBA2RGB);
+        cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
 
-        let low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [35, 60, 60, 0]);
-        let high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [75, 255, 255, 0]);
+        // 元の「動きやすかった」閾値に完全に戻す
+        let low = cv.matFromArray(3, 1, cv.CV_8U, [35, 60, 50]);
+        let high = cv.matFromArray(3, 1, cv.CV_8U, [85, 255, 255]);
         cv.inRange(hsv, low, high, mask);
         low.delete(); high.delete();
 
         cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
+        
         let allCandidates = [];
+
+        // ステップ1: まずは緑色っぽくて、ある程度丸いものをすべてリストアップする
         for (let i = 0; i < contours.size(); ++i) {
             let cnt = contours.get(i);
             let area = cv.contourArea(cnt);
-
-            if (area > 500) { 
+            
+            if (area < 800) { // ★バグ修正：面積の上限制限(area < 800)を撤廃し、500px以上の本物マーカーを広く検知可能に
                 let perimeter = cv.arcLength(cnt, true);
-                let approx = new cv.Mat();
-                cv.approxPolyDP(cnt, approx, 0.04 * perimeter, true);
-
-                let moments = cv.moments(cnt, false);
-                if (moments.m00 !== 0) {
-                    let cx = moments.m01 / moments.m00;
-                    let cy = moments.m10 / moments.m00;
-                    allCandidates.push({ area: area, x: cy, y: cx });
+                if (perimeter > 0) {
+                    let circularity = (4 * Math.PI * area) / (perimeter * perimeter);
+                    
+                    // しっかり丸い形をしているものだけを候補にする
+                    if (circularity > 0.8) { 
+                        let M = cv.moments(cnt);
+                        if (M.m00 !== 0) {
+                            allCandidates.push({
+                                area: area,
+                                x: M.m10 / M.m00,
+                                y: M.m01 / M.m00
+                            });
+                        }
+                    }
                 }
-                approx.delete();
             }
             cnt.delete();
         }
 
+        // 候補を「面積が大きい順（降順）」に並び替える
         allCandidates.sort((a, b) => b.area - a.area);
+
+        // 上位4つだけを「本物のマーカー」として抽出する
         let validCenters = allCandidates.slice(0, 4);
 
-        // 2回目以降モード：初回の「ゴーストガイド枠（黄色）」を描画
+        // --- 【新規追加】2回目以降モード：初回の「ゴーストガイド枠（黄色）」を描画 ---
         if (masterPoints) {
-            ctx.strokeStyle = 'rgba(255, 204, 0, 0.5)';
+            ctx.strokeStyle = 'rgba(255, 204, 0, 0.5)'; // 透明度50%の黄色
             ctx.lineWidth = 4;
-            ctx.setLineDash([10, 10]);
+            ctx.setLineDash([10, 10]); // 点線
             ctx.beginPath();
             ctx.moveTo(masterPoints[0].x, masterPoints[0].y);
             ctx.lineTo(masterPoints[1].x, masterPoints[1].y);
@@ -203,30 +362,36 @@ function processVideo() {
             ctx.lineTo(masterPoints[3].x, masterPoints[3].y);
             ctx.closePath();
             ctx.stroke();
-            ctx.setLineDash([]);
+            ctx.setLineDash([]); // 点線設定を戻す
         }
 
+        // 最終的に「合格した大きな丸」が4つ揃っていれば確定
         if (validCenters.length === 4) {
             validCenters.sort((a, b) => a.y - b.y);
-            let topTwo = validCenters.slice(0, 2).sort((a, b) => a.x - b.x);
-            let bottomTwo = validCenters.slice(2, 4).sort((a, b) => b.x - a.x);
-            let pts = [topTwo[0], topTwo[1], bottomTwo[0], bottomTwo[1]];
+            let topTwo = [validCenters[0], validCenters[1]].sort((a, b) => a.x - b.x);
+            let bottomTwo = [validCenters[2], validCenters[3]].sort((a, b) => a.x - b.x);
+            const pts = [topTwo[0], topTwo[1], bottomTwo[1], bottomTwo[0]];
 
+            // 現在の緑色枠を描画
             ctx.strokeStyle = '#34c759'; ctx.lineWidth = 5;
             ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
             ctx.lineTo(pts[1].x, pts[1].y); ctx.lineTo(pts[2].x, pts[2].y);
             ctx.lineTo(pts[3].x, pts[3].y); ctx.closePath(); ctx.stroke();
 
+            // --- 【新規追加】画角の一致判定ロジック ---
             let isPositionOK = false;
             if (!masterPoints) {
+                // 初回モード：4つの点が見つかっていれば無条件で配置OK
                 isPositionOK = true;
             } else {
-                isPositionOK = isSamePoints(pts, masterPoints, 20);
+                // 2回目以降：現在の4点が初回の位置とだいたい同じかチェック
+                isPositionOK = isSamePoints(pts, masterPoints, 20); // 許容誤差20px
             }
 
             if (isPositionOK) {
                 lockCounter++;
                 if (lockCounter >= REQUIRED_FRAMES) {
+                    // ★初回録画スタートの瞬間であれば、現在の4点をマスターとして保存
                     if (!masterPoints) {
                         localStorage.setItem(STORAGE_KEY, JSON.stringify(pts));
                         masterPoints = pts;
@@ -238,8 +403,18 @@ function processVideo() {
                     if (animationFrameId) cancelAnimationFrame(animationFrameId);
 
                     canvas.classList.add('locked');
-                    isRecording = true;
-                    updateStatusMessage();
+                    
+                    // 💡 1秒ごとにカウントして表示を更新する単純なタイマーを開始
+                    recordSeconds = 0;
+                    recordTimerId = setInterval(() => {
+                        recordSeconds++;
+                        const mins = String(Math.floor(recordSeconds / 60)).padStart(2, '0');
+                        const secs = String(recordSeconds % 60).padStart(2, '0');
+                        statusText.innerHTML = `🔴 録画中<span>${mins}:${secs}</span>`;
+                    }, 1000);
+
+                    // 開始直後の初期表示
+                    statusText.innerHTML = `🔴 録画中<span>00:00</span>`;
 
                     startRecordingSystem();
                     return; 
@@ -265,46 +440,12 @@ function processVideo() {
             }
             ctx.fillStyle = 'red';
             for(let p of validCenters) {
-                ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, 2 * Math.PI); ctx.fill();
+                ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, 2 * Math.PI); ctx.fill();
             }
         }
-    } catch (err) {
-        console.error(err);
     }
 
-    animationFrameId = requestAnimationFrame(processVideo);
-}
-
-stopRecordBtn.addEventListener('click', () => {
-    if (mediaRecorder && isRecording) {
-        mediaRecorder.stop();
-        isRecording = false;
-        isProcessing = false;
-        if (animationFrameId) cancelAnimationFrame(animationFrameId);
-        
-        if (cameraStream) {
-            cameraStream.getTracks().forEach(track => track.stop());
-        }
-        
-        statusText.classList.remove('recording');
-        statusText.classList.add('loading');
-        statusText.innerText = "録画を停止しました。データを保存しています...";
+    if (isProcessing) {
+        animationFrameId = requestAnimationFrame(processVideo);
     }
-});
-
-function startRecordingSystem() {
-    // 既存の録画・Chunk保存の仕組みをここに記述
 }
-
-startBtn.addEventListener('click', () => {
-    startBtn.disabled = true;
-    startSystem();
-});
-
-// OpenCVロード完了時
-window.onOpenCvReady = () => {
-    startBtn.disabled = false;
-    resetConfigBtn.style.display = "inline-block";
-    updateStatusMessage();
-};
-if (typeof cv !== 'undefined') window.onOpenCvReady();
