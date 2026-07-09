@@ -12,17 +12,17 @@
     <div class="app-container">
         <header class="app-header">
             <div id="status" class="status-badge loading">OpenCV.jsを読み込んでいます...</div>
-            <button id="reset-config-btn" style="display: none;">画角リセット</button>
         </header>
         
         <div class="video-area">
             <video id="camera-view" autoplay playsinline muted></video>
             <canvas id="canvas-output"></canvas>
+            
+            <button id="reset-config-btn" style="display: none;">🔄 画角リセット</button>
         </div>
 
         <footer class="app-footer">
             <button id="start-btn" class="btn btn-primary" disabled>システム開始</button>
-            <button id="reset-config-btn" class="btn" style="background-color: #555; display: none;">🔄 画角リセット</button>
             <button id="stop-record-btn" class="btn btn-danger" style="display: none;">⏹ 録画停止して終了</button>
         </footer>
     </div>
