@@ -169,26 +169,35 @@ canvas {
     100% { transform: scale(1); opacity: 1; }
 }
 
-/* 画角リセットボタンの誤タップ防止用ミニスタイル */
+/* ==========================================
+   💡 【修正】画角リセットボタン（映像エリア右上隅への絶対配置＆ミニサイズ化）
+   ========================================== */
 #reset-config-btn {
+    position: absolute;
+    top: 10px;                /* 映像エリア上部からの隙間 */
+    right: 10px;              /* 映像エリア右側からの隙間 */
+    z-index: 10;              /* 映像キャンバスより手前に重ねる */
+    
     font-size: 11px;          /* 文字を極限まで小さく */
-    padding: 3px 8px;         /* ボタン自体の縦幅・横幅を小さく */
-    min-width: auto;          /* 余計な広がりを防止 */
+    padding: 4px 8px;         /* ボタン自体のサイズを小さく */
+    min-width: auto;          /* 横方向の余計な広がりを防止 */
     min-height: auto;
     line-height: 1.2;
-    opacity: 0.7;             /* 少し半透明にして存在感を減らす */
-    border-radius: 4px;       /* 角丸も控えめに */
-    border: 1px solid #555;   /* 境界線を細く */
-    background-color: #333;   /* 目立たないシックな背景色 */
+    
+    background-color: rgba(0, 0, 0, 0.6); /* 映像を邪魔しない半透明の黒 */
     color: #ccc;
-    vertical-align: middle;
-    margin-left: 8px;         /* ステータス文字との間隔 */
+    border: 1px solid rgba(255, 255, 255, 0.3); /* 控えめな白い枠線 */
+    border-radius: 4px;       /* 角丸も小さく */
+    opacity: 0.6;             /* 普段はかなり薄く透明にする */
     cursor: pointer;
     transition: opacity 0.2s, background-color 0.2s;
+    
+    /* フッターボタン等の幅100%などの指定を確実に打ち消す */
+    width: auto !important;
 }
 
-/* 指がしっかり乗った（ホバー・アクティブ）ときだけ明るくする */
+/* タップしている瞬間だけハッキリ視認できるようにする */
 #reset-config-btn:active {
     opacity: 1;
-    background-color: #444;
+    background-color: rgba(0, 0, 0, 0.9);
 }
