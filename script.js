@@ -98,14 +98,27 @@ function isSamePoints(ptsA, ptsB, threshold = 20) {
     return true;
 }
 
-// ステータスメッセージの表示状態を出し分ける関数
+// ステータスメッセージと「リセットボタン」の表示状態を出し分ける関数
 function updateStatusMessage() {
     if (!statusText) return;
     statusText.classList.remove('loading');
+    
     if (masterPoints) {
         statusText.innerHTML = `📅 <span style="color: #ffcc00; font-weight: bold;">【2回目以降】</span> 初回の黄色枠に合わせてください`;
+        
+        // ✨撮影開始前の「画角探索中(isProcessing)」かつ「未録画(!isRecording)」のときのみ表示
+        if (resetConfigBtn && isProcessing && !isRecording) {
+            resetConfigBtn.style.display = 'inline-block';
+        } else {
+            // 撮影中や撮影後の処理中は絶対に非表示
+            if (resetConfigBtn) resetConfigBtn.style.display = 'none';
+        }
     } else {
         statusText.innerHTML = `🆕 <span style="color: #34c759; font-weight: bold;">【初回撮影】</span> 理想の画角に設置してください`;
+        // 初回モードは常に非表示
+        if (resetConfigBtn) {
+            resetConfigBtn.style.display = 'none';
+        }
     }
 }
 
@@ -114,12 +127,7 @@ async function onOpenCvReady() {
     try {
         await initIndexedDB();
         
-        // 【修正】撮影開始前なので、リセットボタンを表示
-        if (resetConfigBtn) {
-            resetConfigBtn.style.display = 'inline-block';
-        }
-        
-        // 状態に合わせて「初回」か「2回目」かの文言を表示
+        // 状態に合わせてメッセージとリセットボタンを制御 (初期画面では非表示)
         updateStatusMessage();
         
         if (startBtn) startBtn.disabled = false;
@@ -128,7 +136,7 @@ async function onOpenCvReady() {
     }
 }
 
-// すでにcvオブジェクトが存在する（ロードが先に終わっていた）場合は即座に実行
+// すでにcvオブジェクトが存在する場合は即座に実行
 if (typeof cv !== 'undefined' && cv.Mat) {
     onOpenCvReady();
 } else {
@@ -146,6 +154,8 @@ if (resetConfigBtn) {
             masterPoints = null;
             lockCounter = 0;
             canvas.classList.remove('locked');
+            
+            // リセット完了後、初回モード（ボタン非表示）へ自動切り替え
             updateStatusMessage();
         }
     });
@@ -153,6 +163,7 @@ if (resetConfigBtn) {
 
 startBtn.addEventListener('click', async () => {
     statusText.innerText = "広角スキャン用カメラを探索中...";
+    if (resetConfigBtn) resetConfigBtn.style.display = 'none'; // 探索中はいったん非表示
     try {
         await clearDatabase(); 
 
@@ -191,9 +202,6 @@ startBtn.addEventListener('click', async () => {
         video.play();
         startBtn.style.display = 'none';
         
-        // 【修正】カメラ接続に成功し、スキャン中の段階でもリセットボタンは出しておく（必要なら戻せるように）
-        if (resetConfigBtn) resetConfigBtn.style.display = 'inline-block';
-        
         video.onloadedmetadata = () => {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
@@ -205,6 +213,9 @@ startBtn.addEventListener('click', async () => {
 
             isProcessing = true;
             
+            // 💡スキャン処理が開始されたため、2回目以降であればリセットボタンを表示する
+            updateStatusMessage();
+            
             if (masterPoints) {
                 statusText.innerText = "マーカーを初回の黄色い点線枠に重ねてください";
             } else {
@@ -215,6 +226,7 @@ startBtn.addEventListener('click', async () => {
         };
     } catch (error) {
         statusText.innerText = "カメラ起動失敗: " + error.message;
+        if (resetConfigBtn) resetConfigBtn.style.display = 'none';
     }
 });
 
@@ -277,11 +289,10 @@ function triggerSecureDownload(blobData) {
         URL.revokeObjectURL(url);
         clearDatabase();
         
-        // 全て終わって初期状態に戻ったため、リセットボタンを再表示
-        if (resetConfigBtn) resetConfigBtn.style.display = 'inline-block';
+        // ✨撮影・保存が完了した後は、次のスキャンが始まるまでリセットボタンを確実に非表示のままにする
+        if (resetConfigBtn) resetConfigBtn.style.display = 'none';
     }, 1000);
 
-    // 【修正】安全に終了しましたの文字サイズを14px（小さめ）に変更
     statusText.innerHTML = `<span style="color: #34c759; font-size: 14px; font-weight: normal;">■ 録画を安全に終了しました。<br>「ファイル」アプリの「ダウンロード」を確認してください。</span>`;
 }
 
@@ -289,6 +300,9 @@ stopRecordBtn.addEventListener('click', () => {
     if (isRecording) {
         isRecording = false;
         stopRecordBtn.style.display = 'none';
+        
+        // 撮影終了に伴い、リセットボタンを絶対に表示させない
+        if (resetConfigBtn) resetConfigBtn.style.display = 'none';
         
         if (recordTimerId) {
             clearInterval(recordTimerId);
@@ -374,11 +388,11 @@ function processVideo() {
             ctx.stroke();
             ctx.setLineDash([]); 
 
-            // 【修正】② 四隅の角に丸（点）を強調描画して視認性をアップ
-            ctx.fillStyle = 'rgba(255, 204, 0, 0.9)'; // 濃いめの黄色
+            // ② 四隅の角に丸（点）を強調描画して視認性をアップ
+            ctx.fillStyle = 'rgba(255, 204, 0, 0.9)'; 
             for (let i = 0; i < 4; i++) {
                 ctx.beginPath();
-                ctx.arc(masterPoints[i].x, masterPoints[i].y, 8, 0, 2 * Math.PI); // 半径8pxの丸
+                ctx.arc(masterPoints[i].x, masterPoints[i].y, 8, 0, 2 * Math.PI); 
                 ctx.fill();
             }
         }
@@ -391,7 +405,7 @@ function processVideo() {
 
             // 現在の緑色枠を描画
             ctx.strokeStyle = '#34c759'; ctx.lineWidth = 5;
-            ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+            ctx.beginPath(); ctx.moveTo(pts[0].x, pts[1].y = pts[0].y); 
             ctx.lineTo(pts[1].x, pts[1].y); ctx.lineTo(pts[2].x, pts[2].y);
             ctx.lineTo(pts[3].x, pts[3].y); ctx.closePath(); ctx.stroke();
 
@@ -411,7 +425,7 @@ function processVideo() {
                         masterPoints = pts;
                     }
 
-                    // 【修正】撮影開始（確定）となったため、リセットボタンを非表示にする
+                    // ✨撮影開始（確定）となったため、リセットボタンを確実に非表示にする
                     if (resetConfigBtn) resetConfigBtn.style.display = 'none';
 
                     src.delete(); dst.delete(); hsv.delete(); mask.delete(); contours.delete(); hierarchy.delete();
