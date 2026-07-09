@@ -1,2 +1,170 @@
-429: Too Many Requests
-For more on scraping GitHub and how it may affect your rights, please review our Terms of Service (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).
+/* ==========================================
+   スマートフォン全画面・スクロール禁止リセット
+   ========================================== */
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #0d0f12;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #e2e8f0;
+}
+
+/* アプリ全体のコンテナ（画面縦いっぱいにフィット） */
+.app-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    padding: 20px;
+}
+
+/* ==========================================
+   ステータス＆カウント表示エリア（録画中にダイナミックに変形）
+   ========================================== */
+.app-header {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: all 0.4s ease;
+}
+
+/* ステータスバッジの標準スタイル */
+.status-badge {
+    width: 100%;
+    padding: 14px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: bold;
+    text-align: center;
+    background-color: #1a1f26;
+    border: 1px solid #2d3748;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+    line-height: 1.5;
+}
+
+/* 💡 【録画中】Canvasにlockedがついた時のステータス表示（画面中央で超巨大化） */
+.app-container:has(canvas.locked) {
+    justify-content: center; /* 要素を画面中央に集める */
+}
+
+.app-container:has(canvas.locked) .app-header {
+    flex: 1; /* 映像が消えた分のスペースをすべて使って大きく広がる */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.app-container:has(canvas.locked) .status-badge {
+    background-color: #1a1f26;
+    border: 2px solid #3182ce;
+    font-size: 24px; /* 録画中の文字サイズを大きく */
+    padding: 30px 20px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    animation: pulse-border 2s infinite;
+}
+
+/* カウントダウンや経過時間の数字（spanタグ）をさらに強調 */
+.app-container:has(canvas.locked) .status-badge span {
+    display: block;
+    font-size: 42px !important; /* 何分何秒の数値をスマホ画面で最大級に強調 */
+    margin-top: 15px;
+    font-family: 'Courier New', Courier, monospace; /* 数字を見やすく */
+}
+
+@keyframes pulse-border {
+    0% { border-color: #3182ce; box-shadow: 0 0 0px rgba(49, 130, 206, 0.2); }
+    50% { border-color: #e53e3e; box-shadow: 0 0 20px rgba(229, 62, 62, 0.4); }
+    100% { border-color: #3182ce; box-shadow: 0 0 0px rgba(49, 130, 206, 0.2); }
+}
+
+/* ==========================================
+   映像表示エリア（録画が始まると完全消滅）
+   ========================================== */
+.video-area {
+    flex: 1 1 auto;
+    position: relative;
+    width: 100%;
+    background-color: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    margin: 15px 0;
+    border: 1px solid #2d3748;
+}
+
+video {
+    display: none; /* 元のビデオは常に非表示（裏で動作） */
+}
+
+canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* 💡 【重要】録画が開始（lockedクラスが追加）されたら、映像エリアごと完全に消し去る */
+.app-container:has(canvas.locked) .video-area {
+    display: none !important;
+}
+
+/* ==========================================
+   下部：操作ボタンエリア
+   ========================================== */
+.app-footer {
+    flex: 0 0 auto;
+    display: flex;
+    width: 100%;
+}
+
+.btn {
+    width: 100%;
+    padding: 20px; /* スマホで押しやすい巨大サイズ */
+    font-size: 18px;
+    font-weight: bold;
+    border: none;
+    border-radius: 14px;
+    cursor: pointer;
+}
+
+/* システム開始ボタン */
+.btn-primary {
+    background: linear-gradient(135deg, #3182ce, #2b6cb0);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(49, 130, 206, 0.3);
+}
+.btn-primary:disabled {
+    background: #1a1f26;
+    color: #4a5568;
+    border: 1px solid #2d3748;
+    box-shadow: none;
+}
+
+/* 録画停止ボタン（初期状態は完全に非表示） */
+.btn-danger {
+    display: none;
+    background: linear-gradient(135deg, #e53e3e, #c53030);
+    color: #fff;
+    box-shadow: 0 6px 20px rgba(229, 62, 62, 0.4);
+}
+
+/* 💡 【録画中】システム開始ボタンを隠し、録画停止ボタン（強調版）を身代わりに出現させる */
+.app-container:has(canvas.locked) .btn-primary {
+    display: none !important;
+}
+
+.app-container:has(canvas.locked) .btn-danger {
+    display: block !important;
+    animation: bounce-in 0.3s ease-out;
+}
+
+@keyframes bounce-in {
+    0% { transform: scale(0.9); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+}
