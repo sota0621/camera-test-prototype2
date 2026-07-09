@@ -168,3 +168,27 @@ canvas {
     0% { transform: scale(0.9); opacity: 0; }
     100% { transform: scale(1); opacity: 1; }
 }
+
+/* 画角リセットボタンの誤タップ防止用ミニスタイル */
+#reset-config-btn {
+    font-size: 11px;          /* 文字を極限まで小さく */
+    padding: 3px 8px;         /* ボタン自体の縦幅・横幅を小さく */
+    min-width: auto;          /* 余計な広がりを防止 */
+    min-height: auto;
+    line-height: 1.2;
+    opacity: 0.7;             /* 少し半透明にして存在感を減らす */
+    border-radius: 4px;       /* 角丸も控えめに */
+    border: 1px solid #555;   /* 境界線を細く */
+    background-color: #333;   /* 目立たないシックな背景色 */
+    color: #ccc;
+    vertical-align: middle;
+    margin-left: 8px;         /* ステータス文字との間隔 */
+    cursor: pointer;
+    transition: opacity 0.2s, background-color 0.2s;
+}
+
+/* 指がしっかり乗った（ホバー・アクティブ）ときだけ明るくする */
+#reset-config-btn:active {
+    opacity: 1;
+    background-color: #444;
+}
