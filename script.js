@@ -109,12 +109,12 @@ function updateStatusMessage() {
     }
 }
 
-// --- ★タイミング問題を完全に解決する初期化関数 ---
+// --- タイミング問題を完全に解決する初期化関数 ---
 async function onOpenCvReady() {
     try {
         await initIndexedDB();
         
-        // リセットボタンを表示
+        // 【修正】撮影開始前なので、リセットボタンを表示
         if (resetConfigBtn) {
             resetConfigBtn.style.display = 'inline-block';
         }
@@ -132,7 +132,6 @@ async function onOpenCvReady() {
 if (typeof cv !== 'undefined' && cv.Mat) {
     onOpenCvReady();
 } else {
-    // まだロードされていない場合はloadイベントを待つ（どちらのタイミングでも確実に動くようにします）
     const cvScript = document.getElementById('opencv-src');
     if (cvScript) {
         cvScript.addEventListener('load', onOpenCvReady);
@@ -191,6 +190,9 @@ startBtn.addEventListener('click', async () => {
         video.srcObject = cameraStream;
         video.play();
         startBtn.style.display = 'none';
+        
+        // 【修正】カメラ接続に成功し、スキャン中の段階でもリセットボタンは出しておく（必要なら戻せるように）
+        if (resetConfigBtn) resetConfigBtn.style.display = 'inline-block';
         
         video.onloadedmetadata = () => {
             canvas.width = video.videoWidth;
@@ -274,9 +276,13 @@ function triggerSecureDownload(blobData) {
     setTimeout(() => {
         URL.revokeObjectURL(url);
         clearDatabase();
+        
+        // 全て終わって初期状態に戻ったため、リセットボタンを再表示
+        if (resetConfigBtn) resetConfigBtn.style.display = 'inline-block';
     }, 1000);
 
-    statusText.innerHTML = `<span style="color: #34c759; font-size: 18px;">■ 録画を安全に終了しました。<br>「ファイル」アプリの「ダウンロード」を確認してください。</span>`;
+    // 【修正】安全に終了しましたの文字サイズを14px（小さめ）に変更
+    statusText.innerHTML = `<span style="color: #34c759; font-size: 14px; font-weight: normal;">■ 録画を安全に終了しました。<br>「ファイル」アプリの「ダウンロード」を確認してください。</span>`;
 }
 
 stopRecordBtn.addEventListener('click', () => {
@@ -330,7 +336,7 @@ function processVideo() {
             let cnt = contours.get(i);
             let area = cv.contourArea(cnt);
             
-            if (area < 800) { 
+            if (area > 500) { 
                 let perimeter = cv.arcLength(cnt, true);
                 if (perimeter > 0) {
                     let circularity = (4 * Math.PI * area) / (perimeter * perimeter);
@@ -355,9 +361,10 @@ function processVideo() {
 
         // --- 2回目以降モード：初回の「ゴーストガイド枠（黄色）」を描画 ---
         if (masterPoints) {
+            // ① 点線枠の描画
             ctx.strokeStyle = 'rgba(255, 204, 0, 0.6)'; 
             ctx.lineWidth = 4;
-            ctx.setLineDash([10, 10]); // 点線
+            ctx.setLineDash([10, 10]); 
             ctx.beginPath();
             ctx.moveTo(masterPoints[0].x, masterPoints[0].y);
             ctx.lineTo(masterPoints[1].x, masterPoints[1].y);
@@ -366,6 +373,14 @@ function processVideo() {
             ctx.closePath();
             ctx.stroke();
             ctx.setLineDash([]); 
+
+            // 【修正】② 四隅の角に丸（点）を強調描画して視認性をアップ
+            ctx.fillStyle = 'rgba(255, 204, 0, 0.9)'; // 濃いめの黄色
+            for (let i = 0; i < 4; i++) {
+                ctx.beginPath();
+                ctx.arc(masterPoints[i].x, masterPoints[i].y, 8, 0, 2 * Math.PI); // 半径8pxの丸
+                ctx.fill();
+            }
         }
 
         if (validCenters.length === 4) {
@@ -395,6 +410,9 @@ function processVideo() {
                         localStorage.setItem(STORAGE_KEY, JSON.stringify(pts));
                         masterPoints = pts;
                     }
+
+                    // 【修正】撮影開始（確定）となったため、リセットボタンを非表示にする
+                    if (resetConfigBtn) resetConfigBtn.style.display = 'none';
 
                     src.delete(); dst.delete(); hsv.delete(); mask.delete(); contours.delete(); hierarchy.delete();
                     
