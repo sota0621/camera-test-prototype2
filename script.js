@@ -5,7 +5,7 @@ const startBtn = document.getElementById('start-btn');
 const stopRecordBtn = document.getElementById('stop-record-btn');
 const statusText = document.getElementById('status');
 
-// ▼ 【新規追加】画角リセットボタンの要素を取得
+// 画角リセットボタンの要素を取得
 const resetConfigBtn = document.getElementById('reset-config-btn');
 
 let src, dst, hsv, mask, contours, hierarchy;
@@ -14,7 +14,7 @@ let isProcessing = false;
 let lockCounter = 0;
 const REQUIRED_FRAMES = 150; // 5秒間安定
 
-// ブレ対策：直近30フレームの履歴を記憶するバッファ（打率制）
+// ブレ対策
 const BUFFER_SIZE = 30;
 let detectionHistory = new Array(BUFFER_SIZE).fill(false);
 let historyIndex = 0;
@@ -28,7 +28,7 @@ let animationFrameId = null;
 let recordTimerId = null;
 let recordSeconds = 0;
 
-// --- 【新規追加】1回目（初回）の画角マスター座標を管理する設定 ---
+// --- 画角マスター座標を localStorage で永続管理 ---
 const STORAGE_KEY = "experiment_master_pts";
 let masterPoints = JSON.parse(localStorage.getItem(STORAGE_KEY)) || null;
 
@@ -85,41 +85,42 @@ function getAllChunksFromDB() {
     });
 }
 
-// --- 【新規追加】現在の4点座標が初回の座標と一致しているか判定する関数 ---
+// 現在の4点座標が初回の座標と一致しているか判定（許容誤差20ピクセル）
 function isSamePoints(ptsA, ptsB, threshold = 20) {
     if (!ptsA || !ptsB || ptsA.length !== 4 || ptsB.length !== 4) return false;
     for (let i = 0; i < 4; i++) {
         const dx = ptsA[i].x - ptsB[i].x;
         const dy = ptsA[i].y - ptsB[i].y;
         if (Math.sqrt(dx * dx + dy * dy) > threshold) {
-            return false; // 1点でも許容ピクセル（20px）を超えてズレていたら不可
+            return false; 
         }
     }
     return true;
 }
 
-// --- 【新規追加】ステータスメッセージの表示を更新する関数 ---
+// ステータスメッセージの表示状態を出し分ける関数
 function updateStatusMessage() {
+    statusText.classList.remove('loading');
     if (masterPoints) {
-        statusText.innerHTML = `📅 <span style="color: #5ac8fa; font-weight: bold;">【2回目以降モード】</span> 初回の黄色枠に合わせてください`;
+        statusText.innerHTML = `📅 <span style="color: #ffcc00; font-weight: bold;">【2回目以降】</span> 初回の黄色枠に合わせてください`;
     } else {
-        statusText.innerHTML = `🆕 <span style="color: #34c759; font-weight: bold;">【初回マスター登録モード】</span> 理想の画角に設置してください`;
+        statusText.innerHTML = `🆕 <span style="color: #34c759; font-weight: bold;">【初回撮影】</span> 理想の画角に設置してください`;
     }
 }
 
 // ---------------------------------
 
-// 元コードのイベントハンドラをそのまま使用
+// OpenCVロード完了時
 document.getElementById('opencv-src').addEventListener('load', async () => {
     try {
         await initIndexedDB();
         
-        // ▼ 【新規追加】OpenCVロード完了時に、HTMLに存在するリセットボタンを表示させる
+        // リセットボタンを表示
         if (resetConfigBtn) {
             resetConfigBtn.style.display = 'inline-block';
         }
         
-        // ▼ 【新規追加】現在の保存状況に応じてメッセージを出し分ける
+        // 状態に合わせて「初回」か「2回目」かの文言を表示
         updateStatusMessage();
         
         startBtn.disabled = false;
@@ -128,7 +129,7 @@ document.getElementById('opencv-src').addEventListener('load', async () => {
     }
 });
 
-// ▼ 【新規追加】リセットボタンのクリックイベント
+// リセットボタンのクリックイベント
 if (resetConfigBtn) {
     resetConfigBtn.addEventListener('click', () => {
         if (confirm("保存されている初回の画角データを削除し、新しく作り直しますか？")) {
@@ -144,7 +145,7 @@ if (resetConfigBtn) {
 startBtn.addEventListener('click', async () => {
     statusText.innerText = "広角スキャン用カメラを探索中...";
     try {
-        await clearDatabase(); // 録画開始前に前回のデータをクリーンアップ
+        await clearDatabase(); 
 
         const initStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
         initStream.getTracks().forEach(track => track.stop());
@@ -192,9 +193,9 @@ startBtn.addEventListener('click', async () => {
 
             isProcessing = true;
             
-            // ▼ 表示の再更新
+            // ★バグ修正：カメラ接続直後に一画一律のテキストで上書きされるのを防ぐ
             if (masterPoints) {
-                statusText.innerText = "4つのマーカーを初回の黄色い点線枠に重ねてください";
+                statusText.innerText = "マーカーを初回の黄色い点線枠に重ねてください";
             } else {
                 statusText.innerText = "緑の丸4つを画面内に収めてください";
             }
@@ -274,7 +275,6 @@ stopRecordBtn.addEventListener('click', () => {
         isRecording = false;
         stopRecordBtn.style.display = 'none';
         
-        // 💡 録画停止時にタイマーをストップしてクリアする
         if (recordTimerId) {
             clearInterval(recordTimerId);
             recordTimerId = null;
@@ -308,7 +308,6 @@ function processVideo() {
         cv.cvtColor(dst, hsv, cv.COLOR_RGBA2RGB);
         cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
 
-        // 元の「動きやすかった」閾値に完全に戻す
         let low = cv.matFromArray(3, 1, cv.CV_8U, [35, 60, 50]);
         let high = cv.matFromArray(3, 1, cv.CV_8U, [85, 255, 255]);
         cv.inRange(hsv, low, high, mask);
@@ -318,17 +317,16 @@ function processVideo() {
         
         let allCandidates = [];
 
-        // ステップ1: まずは緑色っぽくて、ある程度丸いものをすべてリストアップする
         for (let i = 0; i < contours.size(); ++i) {
             let cnt = contours.get(i);
             let area = cv.contourArea(cnt);
             
-            if (area < 800) { // ★バグ修正：面積の上限制限(area < 800)を撤廃し、500px以上の本物マーカーを広く検知可能に
+            // 面積が500以上のものを抽出
+            if (area > 500) { 
                 let perimeter = cv.arcLength(cnt, true);
                 if (perimeter > 0) {
                     let circularity = (4 * Math.PI * area) / (perimeter * perimeter);
                     
-                    // しっかり丸い形をしているものだけを候補にする
                     if (circularity > 0.8) { 
                         let M = cv.moments(cnt);
                         if (M.m00 !== 0) {
@@ -344,15 +342,12 @@ function processVideo() {
             cnt.delete();
         }
 
-        // 候補を「面積が大きい順（降順）」に並び替える
         allCandidates.sort((a, b) => b.area - a.area);
-
-        // 上位4つだけを「本物のマーカー」として抽出する
         let validCenters = allCandidates.slice(0, 4);
 
-        // --- 【新規追加】2回目以降モード：初回の「ゴーストガイド枠（黄色）」を描画 ---
+        // --- 2回目以降モード：初回の「ゴーストガイド枠（黄色）」を描画 ---
         if (masterPoints) {
-            ctx.strokeStyle = 'rgba(255, 204, 0, 0.5)'; // 透明度50%の黄色
+            ctx.strokeStyle = 'rgba(255, 204, 0, 0.6)'; 
             ctx.lineWidth = 4;
             ctx.setLineDash([10, 10]); // 点線
             ctx.beginPath();
@@ -362,10 +357,9 @@ function processVideo() {
             ctx.lineTo(masterPoints[3].x, masterPoints[3].y);
             ctx.closePath();
             ctx.stroke();
-            ctx.setLineDash([]); // 点線設定を戻す
+            ctx.setLineDash([]); 
         }
 
-        // 最終的に「合格した大きな丸」が4つ揃っていれば確定
         if (validCenters.length === 4) {
             validCenters.sort((a, b) => a.y - b.y);
             let topTwo = [validCenters[0], validCenters[1]].sort((a, b) => a.x - b.x);
@@ -378,20 +372,18 @@ function processVideo() {
             ctx.lineTo(pts[1].x, pts[1].y); ctx.lineTo(pts[2].x, pts[2].y);
             ctx.lineTo(pts[3].x, pts[3].y); ctx.closePath(); ctx.stroke();
 
-            // --- 【新規追加】画角の一致判定ロジック ---
+            // 一致判定
             let isPositionOK = false;
             if (!masterPoints) {
-                // 初回モード：4つの点が見つかっていれば無条件で配置OK
-                isPositionOK = true;
+                isPositionOK = true; // 初回モード
             } else {
-                // 2回目以降：現在の4点が初回の位置とだいたい同じかチェック
-                isPositionOK = isSamePoints(pts, masterPoints, 20); // 許容誤差20px
+                isPositionOK = isSamePoints(pts, masterPoints, 20); // 2回目以降モード
             }
 
             if (isPositionOK) {
                 lockCounter++;
                 if (lockCounter >= REQUIRED_FRAMES) {
-                    // ★初回録画スタートの瞬間であれば、現在の4点をマスターとして保存
+                    // 録画スタートの瞬間に初回であれば座標を記憶
                     if (!masterPoints) {
                         localStorage.setItem(STORAGE_KEY, JSON.stringify(pts));
                         masterPoints = pts;
@@ -404,7 +396,6 @@ function processVideo() {
 
                     canvas.classList.add('locked');
                     
-                    // 💡 1秒ごとにカウントして表示を更新する単純なタイマーを開始
                     recordSeconds = 0;
                     recordTimerId = setInterval(() => {
                         recordSeconds++;
@@ -413,9 +404,7 @@ function processVideo() {
                         statusText.innerHTML = `🔴 録画中<span>${mins}:${secs}</span>`;
                     }, 1000);
 
-                    // 開始直後の初期表示
                     statusText.innerHTML = `🔴 録画中<span>00:00</span>`;
-
                     startRecordingSystem();
                     return; 
                 } else {
