@@ -100,6 +100,7 @@ function isSamePoints(ptsA, ptsB, threshold = 20) {
 
 // ステータスメッセージの表示状態を出し分ける関数
 function updateStatusMessage() {
+    if (!statusText) return;
     statusText.classList.remove('loading');
     if (masterPoints) {
         statusText.innerHTML = `📅 <span style="color: #ffcc00; font-weight: bold;">【2回目以降】</span> 初回の黄色枠に合わせてください`;
@@ -108,10 +109,8 @@ function updateStatusMessage() {
     }
 }
 
-// ---------------------------------
-
-// OpenCVロード完了時
-document.getElementById('opencv-src').addEventListener('load', async () => {
+// --- ★タイミング問題を完全に解決する初期化関数 ---
+async function onOpenCvReady() {
     try {
         await initIndexedDB();
         
@@ -123,11 +122,22 @@ document.getElementById('opencv-src').addEventListener('load', async () => {
         // 状態に合わせて「初回」か「2回目」かの文言を表示
         updateStatusMessage();
         
-        startBtn.disabled = false;
+        if (startBtn) startBtn.disabled = false;
     } catch (err) {
-        statusText.innerText = "データベース初期化失敗: " + err.message;
+        if (statusText) statusText.innerText = "データベース初期化失敗: " + err.message;
     }
-});
+}
+
+// すでにcvオブジェクトが存在する（ロードが先に終わっていた）場合は即座に実行
+if (typeof cv !== 'undefined' && cv.Mat) {
+    onOpenCvReady();
+} else {
+    // まだロードされていない場合はloadイベントを待つ（どちらのタイミングでも確実に動くようにします）
+    const cvScript = document.getElementById('opencv-src');
+    if (cvScript) {
+        cvScript.addEventListener('load', onOpenCvReady);
+    }
+}
 
 // リセットボタンのクリックイベント
 if (resetConfigBtn) {
@@ -193,7 +203,6 @@ startBtn.addEventListener('click', async () => {
 
             isProcessing = true;
             
-            // ★バグ修正：カメラ接続直後に一画一律のテキストで上書きされるのを防ぐ
             if (masterPoints) {
                 statusText.innerText = "マーカーを初回の黄色い点線枠に重ねてください";
             } else {
@@ -321,7 +330,6 @@ function processVideo() {
             let cnt = contours.get(i);
             let area = cv.contourArea(cnt);
             
-            // 面積が500以上のものを抽出
             if (area > 500) { 
                 let perimeter = cv.arcLength(cnt, true);
                 if (perimeter > 0) {
@@ -375,15 +383,14 @@ function processVideo() {
             // 一致判定
             let isPositionOK = false;
             if (!masterPoints) {
-                isPositionOK = true; // 初回モード
+                isPositionOK = true; 
             } else {
-                isPositionOK = isSamePoints(pts, masterPoints, 20); // 2回目以降モード
+                isPositionOK = isSamePoints(pts, masterPoints, 20); 
             }
 
             if (isPositionOK) {
                 lockCounter++;
                 if (lockCounter >= REQUIRED_FRAMES) {
-                    // 録画スタートの瞬間に初回であれば座標を記憶
                     if (!masterPoints) {
                         localStorage.setItem(STORAGE_KEY, JSON.stringify(pts));
                         masterPoints = pts;
