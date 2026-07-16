@@ -201,3 +201,20 @@ canvas {
     opacity: 1;
     background-color: rgba(0, 0, 0, 0.9);
 }
+
+/* ファイル名入力欄 */
+.filename-input {
+    width: 100%;
+    margin-bottom: 12px;
+    padding: 14px;
+    font-size: 16px;
+    border-radius: 12px;
+    border: 1px solid #2d3748;
+    background-color: #1a1f26;
+    color: #fff;
+    box-sizing: border-box;
+}
+
+.filename-input::placeholder {
+    color: #888;
+}
