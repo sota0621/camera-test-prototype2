@@ -4,6 +4,7 @@ const ctx = canvas.getContext('2d');
 const startBtn = document.getElementById('start-btn');
 const stopRecordBtn = document.getElementById('stop-record-btn');
 const statusText = document.getElementById('status');
+const filenameInput = document.getElementById('filename-input');
 
 // 画角リセットボタンの要素を取得
 const resetConfigBtn = document.getElementById('reset-config-btn');
@@ -272,7 +273,14 @@ function triggerSecureDownload(blobData) {
     const a = document.createElement('a');
     a.href = url;
     const nowTime = new Date().toISOString().replace(/[:.]/g, '-');
-    a.download = `experiment-video-${nowTime}.${ext}`;
+
+    let fileName = filenameInput.value.trim();
+
+    if (fileName === "") {
+        fileName = `experiment-video-${nowTime}`;
+    }
+
+a.download = `${fileName}.${ext}`;
     
     document.body.appendChild(a);
     
@@ -288,6 +296,7 @@ function triggerSecureDownload(blobData) {
     setTimeout(() => {
         URL.revokeObjectURL(url);
         clearDatabase();
+        filenameInput.value = "";
         
         // ✨撮影・保存が完了した後は、次のスキャンが始まるまでリセットボタンを確実に非表示のままにする
         if (resetConfigBtn) resetConfigBtn.style.display = 'none';
