@@ -87,7 +87,7 @@ function getAllChunksFromDB() {
 }
 
 // 現在の4点座標が初回の座標と一致しているか判定（許容誤差20ピクセル）
-function isSamePoints(ptsA, ptsB, threshold = 20) {
+function isSamePoints(ptsA, ptsB, threshold = 30) {
     if (!ptsA || !ptsB || ptsA.length !== 4 || ptsB.length !== 4) return false;
     for (let i = 0; i < 4; i++) {
         const dx = ptsA[i].x - ptsB[i].x;
