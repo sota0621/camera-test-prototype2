@@ -364,7 +364,7 @@ function processVideo() {
                 if (perimeter > 0) {
                     let circularity = (4 * Math.PI * area) / (perimeter * perimeter);
                     
-                    if (circularity > 0.8) { 
+                    if (circularity > 0.7) { 
                         let M = cv.moments(cnt);
                         if (M.m00 !== 0) {
                             allCandidates.push({
