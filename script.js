@@ -423,7 +423,7 @@ function processVideo() {
             if (!masterPoints) {
                 isPositionOK = true; 
             } else {
-                isPositionOK = isSamePoints(pts, masterPoints, 20); 
+                isPositionOK = isSamePoints(pts, masterPoints, 40); 
             }
 
             if (isPositionOK) {
