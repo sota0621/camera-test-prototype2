@@ -87,7 +87,7 @@ function getAllChunksFromDB() {
 }
 
 // 現在の4点座標が初回の座標と一致しているか判定（許容誤差50ピクセル）
-function isSamePoints(ptsA, ptsB, threshold = 60) {
+function isSamePoints(ptsA, ptsB, threshold = 70) {
     if (!ptsA || !ptsB || ptsA.length !== 4 || ptsB.length !== 4) return false;
     for (let i = 0; i < 4; i++) {
         const dx = ptsA[i].x - ptsB[i].x;
@@ -423,7 +423,7 @@ function processVideo() {
             if (!masterPoints) {
                 isPositionOK = true; 
             } else {
-                isPositionOK = isSamePoints(pts, masterPoints, 50); 
+                isPositionOK = isSamePoints(pts, masterPoints, 60); 
             }
 
             if (isPositionOK) {
