@@ -177,20 +177,6 @@ startBtn.addEventListener('click', async () => {
     }
 });
 
-const videoTrack = cameraStream.getVideoTracks()[0];
-const capabilities = videoTrack.getCapabilities();
-
-if (capabilities.zoom) {
-    try {
-        await videoTrack.applyConstraints({
-            advanced: [{
-                zoom: capabilities.zoom.min
-            }]
-        });
-    } catch (e) {
-        console.warn(e);
-    }
-}
         const videoTrack = cameraStream.getVideoTracks()[0];
         const capabilities = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
         
