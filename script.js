@@ -168,29 +168,29 @@ startBtn.addEventListener('click', async () => {
     try {
         await clearDatabase(); 
 
-        const initStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        initStream.getTracks().forEach(track => track.stop());
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: {
+        facingMode: "environment",
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+    }
+});
 
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+const videoTrack = cameraStream.getVideoTracks()[0];
+const capabilities = videoTrack.getCapabilities();
 
-        let targetDeviceId = null;
-        const wideDevice = videoDevices.find(d => {
-            const label = d.label.toLowerCase();
-            return label.includes('ultra') || label.includes('wide') || label.includes('0.5') || label.includes('超広角');
+if (capabilities.zoom) {
+    try {
+        await videoTrack.applyConstraints({
+            advanced: [{
+                zoom: capabilities.zoom.min
+            }]
         });
-
-        if (wideDevice) targetDeviceId = wideDevice.deviceId;
-        else if (videoDevices.length > 1) targetDeviceId = videoDevices[videoDevices.length - 1].deviceId;
-
-        const constraints = {
-            audio: false,
-            video: { width: { ideal: 1280 }, height: { ideal: 720 } }
-        };
-        if (targetDeviceId) constraints.video.deviceId = { exact: targetDeviceId };
-        else constraints.video.facingMode = 'environment';
-
-        cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (e) {
+        console.warn(e);
+    }
+}
         const videoTrack = cameraStream.getVideoTracks()[0];
         const capabilities = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
         
